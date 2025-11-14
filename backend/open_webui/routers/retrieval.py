@@ -1409,6 +1409,34 @@ def save_docs_to_vector_db(
         for doc in docs
     ]
 
+    # Pre-compute metadata_text for hybrid search
+    for idx, metadata in enumerate(metadatas):
+        metadata_parts = []
+
+        if metadata.get("name"):
+            filename = metadata["name"]
+            filename_tokens = (
+                filename.replace("_", " ").replace("-", " ").replace(".", " ")
+            )
+            metadata_parts.append(
+                f"Filename: {filename} {filename_tokens} {filename_tokens}"
+            )
+
+        if metadata.get("title"):
+            metadata_parts.append(f"Title: {metadata['title']}")
+
+        if metadata.get("headings") and isinstance(metadata["headings"], list):
+            headings = " > ".join(str(h) for h in metadata["headings"])
+            metadata_parts.append(f"Section: {headings}")
+
+        if metadata.get("source"):
+            metadata_parts.append(f"Source: {metadata['source']}")
+
+        if metadata.get("snippet"):
+            metadata_parts.append(f"Snippet: {metadata['snippet']}")
+
+        metadata["metadata_text"] = " ".join(metadata_parts)
+
     try:
         if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
             log.info(f"collection {collection_name} already exists")

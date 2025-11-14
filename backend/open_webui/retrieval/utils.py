@@ -105,10 +105,14 @@ class VectorSearchRetriever(BaseRetriever):
 
         results = []
         for idx in range(len(ids)):
+            # Augment document text with pre-computed metadata_text for model visibility
+            augmented_text = (
+                f"{documents[idx]} {metadatas[idx].get('metadata_text', '')}".strip()
+            )
             results.append(
                 Document(
                     metadata=metadatas[idx],
-                    page_content=documents[idx],
+                    page_content=augmented_text,
                 )
             )
         return results
@@ -172,40 +176,13 @@ def query_doc_with_hybrid_search(
 
         log.debug(f"query_doc_with_hybrid_search:doc {collection_name}")
 
-        # This allows BM25 to find documents by filename, title, headings, source URL, etc.
-        augmented_texts = []
-        for idx, text in enumerate(collection_result.documents[0]):
-            metadata = collection_result.metadatas[0][idx]
-            metadata_parts = [text]
-
-            # Add filename (repeat twice for extra weight in BM25 scoring)
-            if metadata.get("name"):
-                filename = metadata["name"]
-                filename_tokens = (
-                    filename.replace("_", " ").replace("-", " ").replace(".", " ")
-                )
-                metadata_parts.append(
-                    f"Filename: {filename} {filename_tokens} {filename_tokens}"
-                )
-
-            # Add title if available
-            if metadata.get("title"):
-                metadata_parts.append(f"Title: {metadata['title']}")
-
-            # Add document section headings if available (from markdown splitter)
-            if metadata.get("headings") and isinstance(metadata["headings"], list):
-                headings = " > ".join(str(h) for h in metadata["headings"])
-                metadata_parts.append(f"Section: {headings}")
-
-            # Add source URL/path if available
-            if metadata.get("source"):
-                metadata_parts.append(f"Source: {metadata['source']}")
-
-            # Add snippet for web search results
-            if metadata.get("snippet"):
-                metadata_parts.append(f"Snippet: {metadata['snippet']}")
-
-            augmented_texts.append(" ".join(metadata_parts))
+        # Augment document texts with pre-computed metadata_text for BM25 search
+        augmented_texts = [
+            f"{text} {metadata.get('metadata_text', '')}".strip()
+            for text, metadata in zip(
+                collection_result.documents[0], collection_result.metadatas[0]
+            )
+        ]
 
         bm25_retriever = BM25Retriever.from_texts(
             texts=augmented_texts,
@@ -285,8 +262,17 @@ def merge_get_results(get_results: list[dict]) -> dict:
     combined_ids = []
 
     for data in get_results:
-        combined_documents.extend(data["documents"][0])
-        combined_metadatas.extend(data["metadatas"][0])
+        documents = data["documents"][0]
+        metadatas = data["metadatas"][0]
+
+        # Augment document texts with pre-computed metadata_text for model visibility
+        augmented_documents = [
+            f"{doc} {meta.get('metadata_text', '')}".strip()
+            for doc, meta in zip(documents, metadatas)
+        ]
+
+        combined_documents.extend(augmented_documents)
+        combined_metadatas.extend(metadatas)
         combined_ids.extend(data["ids"][0])
 
     # Create the output dictionary
@@ -317,17 +303,21 @@ def merge_and_sort_query_results(query_results: list[dict], k: int) -> dict:
 
         for distance, document, metadata in zip(distances, documents, metadatas):
             if isinstance(document, str):
+                # Augment document text with pre-computed metadata_text for model visibility
+                augmented_text = (
+                    f"{document} {metadata.get('metadata_text', '')}".strip()
+                )
                 doc_hash = hashlib.sha256(
                     document.encode()
-                ).hexdigest()  # Compute a hash for uniqueness
+                ).hexdigest()  # Compute a hash for uniqueness (use original text for dedup)
 
                 if doc_hash not in combined.keys():
-                    combined[doc_hash] = (distance, document, metadata)
+                    combined[doc_hash] = (distance, augmented_text, metadata)
                     continue  # if doc is new, no further comparison is needed
 
                 # if doc is alredy in, but new distance is better, update
                 if distance > combined[doc_hash][0]:
-                    combined[doc_hash] = (distance, document, metadata)
+                    combined[doc_hash] = (distance, augmented_text, metadata)
 
     combined = list(combined.values())
     # Sort the list based on distances
