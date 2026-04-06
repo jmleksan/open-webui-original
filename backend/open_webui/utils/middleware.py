@@ -2546,6 +2546,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             headers=headers if headers else None,
                         )
 
+                        if mcp_server_connection.get('config', {}).get('forward_mcp_instructions', True):
+                            mcp_instr = mcp_clients[server_id].server_instructions
+                            if mcp_instr:
+                                form_data['messages'] = add_or_update_system_message(
+                                    mcp_instr,
+                                    form_data['messages'],
+                                    append=True,
+                                )
+
                         function_name_filter_list = mcp_server_connection.get('config', {}).get(
                             'function_name_filter_list', ''
                         )
