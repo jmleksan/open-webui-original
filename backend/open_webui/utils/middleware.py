@@ -2549,8 +2549,18 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         if mcp_server_connection.get('config', {}).get('forward_mcp_instructions', True):
                             mcp_instr = mcp_clients[server_id].server_instructions
                             if mcp_instr:
+                                mcp_info = mcp_server_connection.get('info', {}) or {}
+                                mcp_attr_id = mcp_info.get('id', '') or server_id
+                                mcp_attr_name = mcp_info.get('name', '') or mcp_attr_id
+                                safe_instr = mcp_instr.replace(']]>', ']]]]><![CDATA[>')
+                                wrapped_instr = (
+                                    f'<mcp_instructions server="{html.escape(mcp_attr_id, quote=True)}"'
+                                    f' name="{html.escape(mcp_attr_name, quote=True)}">'
+                                    f'<![CDATA[{safe_instr}]]>'
+                                    f'</mcp_instructions>'
+                                )
                                 form_data['messages'] = add_or_update_system_message(
-                                    mcp_instr,
+                                    wrapped_instr,
                                     form_data['messages'],
                                     append=True,
                                 )

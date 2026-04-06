@@ -223,10 +223,12 @@
 				}
 
 				if (data.config) {
-					enable = data.config.enable ?? true;
-					accessGrants = data.config.access_grants ?? [];
-					if (data.config.forward_mcp_instructions !== undefined) {
-						forwardMcpInstructions = data.config.forward_mcp_instructions;
+					const c = data.config;
+					if ('enable' in c) enable = c.enable;
+					if ('access_grants' in c) accessGrants = c.access_grants ?? [];
+					if ('forward_mcp_instructions' in c) forwardMcpInstructions = c.forward_mcp_instructions;
+					if ('function_name_filter_list' in c) {
+						functionNameFilterList = c.function_name_filter_list ?? '';
 					}
 				}
 
@@ -259,7 +261,14 @@
 					description: description
 				},
 				...(type === 'mcp'
-					? { config: { forward_mcp_instructions: forwardMcpInstructions } }
+					? {
+							config: {
+								enable,
+								function_name_filter_list: functionNameFilterList,
+								access_grants: accessGrants,
+								forward_mcp_instructions: forwardMcpInstructions
+							}
+						}
 					: {})
 			}
 		]);
