@@ -2673,19 +2673,22 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             # Add file context to user messages
             chat_id = metadata.get('chat_id')
             form_data['messages'] = await add_file_context(form_data.get('messages', []), chat_id, user)
-            builtin_tools = await get_builtin_tools(
-                request,
-                {
-                    **extra_params,
-                    '__event_emitter__': event_emitter,
-                    '__skill_ids__': [s.id for s in available_skills if s.id not in user_skill_ids],
-                },
-                features,
-                model,
-            )
-            for name, tool_dict in builtin_tools.items():
-                if name not in tools_dict:
-                    tools_dict[name] = tool_dict
+            # Register builtins only when chat_id + message_id exist so the native tool loop can run;
+            # otherwise the response is passthrough and API/IDE clients would get tool_calls they cannot execute.
+            if metadata.get('chat_id') and metadata.get('message_id'):
+                builtin_tools = await get_builtin_tools(
+                    request,
+                    {
+                        **extra_params,
+                        '__event_emitter__': event_emitter,
+                        '__skill_ids__': [s.id for s in available_skills if s.id not in user_skill_ids],
+                    },
+                    features,
+                    model,
+                )
+                for name, tool_dict in builtin_tools.items():
+                    if name not in tools_dict:
+                        tools_dict[name] = tool_dict
 
         if tools_dict:
             # Always store resolved tools in metadata so downstream consumers
@@ -3106,11 +3109,13 @@ async def outlet_filter_handler(ctx):
 
             # Append the full assistant message (content, output, usage, etc.)
             if assistant_message:
-                message_list.append({
-                    'id': message_id,
-                    'role': 'assistant',
-                    **assistant_message,
-                })
+                message_list.append(
+                    {
+                        'id': message_id,
+                        'role': 'assistant',
+                        **assistant_message,
+                    }
+                )
         else:
             messages_map = await Chats.get_messages_map_by_chat_id(chat_id)
             if not messages_map:
@@ -3884,9 +3889,9 @@ async def streaming_chat_response_handler(response, ctx):
                                                         current_response_tool_call['function']['name'] = delta_name
 
                                                     if delta_arguments:
-                                                        current_response_tool_call['function']['arguments'] += (
-                                                            delta_arguments
-                                                        )
+                                                        current_response_tool_call['function'][
+                                                            'arguments'
+                                                        ] += delta_arguments
 
                                         # Emit pending tool calls in real-time
                                         if response_tool_calls:
