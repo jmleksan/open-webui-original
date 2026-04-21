@@ -2637,6 +2637,11 @@ async def oauth_backchannel_logout(
 
 @app.get('/manifest.json')
 async def get_manifest_json():
+    # Cache at the browser (and any intermediate cache) to avoid a full round-trip
+    # on every load. Default manifest is cheap to revalidate after max-age.
+    _external_cc = 'public, max-age=600, stale-while-revalidate=3600'
+    _default_cc = 'public, max-age=3600, stale-while-revalidate=86400'
+
     if app.state.EXTERNAL_PWA_MANIFEST_URL:
         session = await get_session()
         async with session.get(
@@ -2644,35 +2649,39 @@ async def get_manifest_json():
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
         ) as r:
             r.raise_for_status()
-            return await r.json()
+            body = await r.json()
+        return JSONResponse(content=body, headers={'Cache-Control': _external_cc})
     else:
-        return {
-            'name': app.state.WEBUI_NAME,
-            'short_name': app.state.WEBUI_NAME,
-            'description': f'{app.state.WEBUI_NAME} is an open, extensible, user-friendly interface for AI that adapts to your workflow.',
-            'start_url': '/',
-            'display': 'standalone',
-            'background_color': '#343541',
-            'icons': [
-                {
-                    'src': '/static/logo.png',
-                    'type': 'image/png',
-                    'sizes': '500x500',
-                    'purpose': 'any',
+        return JSONResponse(
+            content={
+                'name': app.state.WEBUI_NAME,
+                'short_name': app.state.WEBUI_NAME,
+                'description': f'{app.state.WEBUI_NAME} is an open, extensible, user-friendly interface for AI that adapts to your workflow.',
+                'start_url': '/',
+                'display': 'standalone',
+                'background_color': '#343541',
+                'icons': [
+                    {
+                        'src': '/static/logo.png',
+                        'type': 'image/png',
+                        'sizes': '500x500',
+                        'purpose': 'any',
+                    },
+                    {
+                        'src': '/static/logo.png',
+                        'type': 'image/png',
+                        'sizes': '500x500',
+                        'purpose': 'maskable',
+                    },
+                ],
+                'share_target': {
+                    'action': '/',
+                    'method': 'GET',
+                    'params': {'text': 'shared'},
                 },
-                {
-                    'src': '/static/logo.png',
-                    'type': 'image/png',
-                    'sizes': '500x500',
-                    'purpose': 'maskable',
-                },
-            ],
-            'share_target': {
-                'action': '/',
-                'method': 'GET',
-                'params': {'text': 'shared'},
             },
-        }
+            headers={'Cache-Control': _default_cc},
+        )
 
 
 @app.get('/opensearch.xml')
