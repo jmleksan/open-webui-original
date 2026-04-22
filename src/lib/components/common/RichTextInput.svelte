@@ -302,6 +302,25 @@
 	let bubbleMenuElement: Element | null = null;
 	let element: Element | null = null;
 
+	/** Defer FormattingButtons refresh to after layout so we don't interleave Svelte DOM work with ProseMirror's updateStateInner (reduces forced reflow). */
+	let toolbarInvalidateRaf = 0;
+
+	const scheduleToolbarInvalidation = () => {
+		if (!richText || !showFormattingToolbar) {
+			if (toolbarInvalidateRaf) {
+				cancelAnimationFrame(toolbarInvalidateRaf);
+				toolbarInvalidateRaf = 0;
+			}
+			return;
+		}
+		if (toolbarInvalidateRaf) cancelAnimationFrame(toolbarInvalidateRaf);
+		toolbarInvalidateRaf = requestAnimationFrame(() => {
+			toolbarInvalidateRaf = 0;
+			if (!editor || editor.isDestroyed) return;
+			editor = editor;
+		});
+	};
+
 	const options = {
 		throwOnError: false
 	};
@@ -855,8 +874,7 @@
 			content: collaboration ? undefined : content,
 			autofocus: messageInput ? true : false,
 			onTransaction: () => {
-				// force re-render so `editor.isActive` works as expected
-				editor = editor;
+				scheduleToolbarInvalidation();
 				if (!editor) return;
 
 				htmlValue = editor.getHTML();
@@ -1223,6 +1241,11 @@
 	});
 
 	onDestroy(() => {
+		if (toolbarInvalidateRaf) {
+			cancelAnimationFrame(toolbarInvalidateRaf);
+			toolbarInvalidateRaf = 0;
+		}
+
 		if (provider) {
 			provider.destroy();
 		}
