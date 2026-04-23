@@ -280,16 +280,17 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
 
     functions_by_id = {f.id: f for f in await Functions.get_functions_by_ids(list(all_function_ids))}
 
-    # Pre-warm the function module cache once per unique function ID.
-    # This ensures each function's DB freshness check runs exactly once,
-    # not once per (model × function) pair.
+    # Pre-warm the function module cache once per unique function ID (not once per
+    # model × function). Rows come from the batch query above; pass them into
+    # get_function_module_from_cache to avoid redundant per-id DB reads while
+    # still loading each module body once for this request.
     # Only attempt to load functions that actually exist in the local DB;
     # imported/custom model configs may reference tools or filters the user
     # hasn't installed, and trying to load those would cause persistent
     # "Failed to load function module" log spam on every model refresh.
-    for function_id in functions_by_id:
+    for function_id, function_row in functions_by_id.items():
         try:
-            await get_function_module_from_cache(request, function_id)
+            await get_function_module_from_cache(request, function_id, function=function_row)
         except Exception as e:
             log.debug(f'Failed to load function module for {function_id}: {e}')
 

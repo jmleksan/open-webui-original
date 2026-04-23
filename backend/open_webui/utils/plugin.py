@@ -6,7 +6,7 @@ from importlib import util
 import types
 import tempfile
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from open_webui.env import (
     PIP_OPTIONS,
@@ -14,7 +14,7 @@ from open_webui.env import (
     OFFLINE_MODE,
     ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS,
 )
-from open_webui.models.functions import Functions
+from open_webui.models.functions import FunctionModel, Functions
 from open_webui.models.tools import Tools
 
 log = logging.getLogger(__name__)
@@ -335,16 +335,29 @@ async def get_tool_module_from_cache(request, tool_id, load_from_db=True):
     return tool_module, frontmatter
 
 
-async def get_function_module_from_cache(request, function_id, load_from_db=True):
+async def get_function_module_from_cache(
+    request,
+    function_id,
+    load_from_db=True,
+    function: Optional[FunctionModel] = None,
+):
     if load_from_db:
         # Always load from the database by default
         # This is useful for hooks like "inlet" or "outlet" where the content might change
         # and we want to ensure the latest content is used.
+        #
+        # Callers that already batch-fetched the row (e.g. get_functions_by_ids) may pass
+        # `function=` to avoid a redundant per-id query.
 
-        function = await Functions.get_function_by_id(function_id)
-        if not function:
-            raise Exception(f'Function not found: {function_id}')
-        content = function.content
+        if function is not None:
+            if function.id != function_id:
+                raise ValueError(f'function row id {function.id!r} does not match {function_id!r}')
+            content = function.content
+        else:
+            function = await Functions.get_function_by_id(function_id)
+            if not function:
+                raise Exception(f'Function not found: {function_id}')
+            content = function.content
 
         new_content = replace_imports(content)
         if new_content != content:
