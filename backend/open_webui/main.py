@@ -637,6 +637,8 @@ async def lifespan(app: FastAPI):
     app.state.main_loop = asyncio.get_running_loop()
 
     app.state.instance_id = INSTANCE_ID
+    app.state.dependencies_preinstalled = False
+    app.state.preinstalled_function_ids = set()
     start_logger()
 
     if RESET_CONFIG_ON_START:
@@ -657,7 +659,8 @@ async def lifespan(app: FastAPI):
     # This should be blocking (sync) so functions are not deactivated on first /get_models calls
     # when the first user lands on the / route.
     log.info('Installing external dependencies of functions and tools...')
-    await install_tool_and_function_dependencies()
+    app.state.preinstalled_function_ids = await install_tool_and_function_dependencies()
+    app.state.dependencies_preinstalled = True
 
     app.state.redis = get_redis_connection(
         redis_url=REDIS_URL,

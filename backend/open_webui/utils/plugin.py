@@ -245,7 +245,9 @@ async def load_tool_module_by_id(tool_id, content=None):
         os.unlink(temp_file.name)
 
 
-async def load_function_module_by_id(function_id: str, content: str | None = None):
+async def load_function_module_by_id(
+    function_id: str, content: str | None = None, install_requirements: bool = True
+):
     if content is None:
         function = await Functions.get_function_by_id(function_id)
         if not function:
@@ -256,7 +258,8 @@ async def load_function_module_by_id(function_id: str, content: str | None = Non
         await Functions.update_function_by_id(function_id, {'content': content})
     else:
         frontmatter = extract_frontmatter(content)
-        install_frontmatter_requirements(frontmatter.get('requirements', ''))
+        if install_requirements:
+            install_frontmatter_requirements(frontmatter.get('requirements', ''))
 
     module_name = f'function_{function_id}'
     module = types.ModuleType(module_name)
@@ -350,7 +353,8 @@ async def get_function_module_from_cache(
         content = function.content
 
         new_content = replace_imports(content)
-        if new_content != content:
+        content_changed = new_content != content
+        if content_changed:
             content = new_content
             # Update the function content in the database
             await Functions.update_function_by_id(function_id, {'content': content})
@@ -361,7 +365,15 @@ async def get_function_module_from_cache(
             if request.app.state.FUNCTION_CONTENTS[function_id] == content:
                 return request.app.state.FUNCTIONS[function_id], None, None
 
-        function_module, function_type, frontmatter = await load_function_module_by_id(function_id, content)
+        dependencies_preinstalled = getattr(request.app.state, 'dependencies_preinstalled', False)
+        preinstalled_function_ids = getattr(request.app.state, 'preinstalled_function_ids', set())
+        should_install_requirements = (
+            (not dependencies_preinstalled) or content_changed or (function_id not in preinstalled_function_ids)
+        )
+
+        function_module, function_type, frontmatter = await load_function_module_by_id(
+            function_id, content, install_requirements=should_install_requirements
+        )
     else:
         # Load from cache (e.g. "stream" hook)
         # This is useful for performance reasons
@@ -407,7 +419,7 @@ def install_frontmatter_requirements(requirements: str):
         log.info('No requirements found in frontmatter.')
 
 
-async def install_tool_and_function_dependencies():
+async def install_tool_and_function_dependencies() -> set[str]:
     """
     Install all dependencies for all admin tools and active functions.
 
@@ -417,6 +429,7 @@ async def install_tool_and_function_dependencies():
     """
     function_list = await Functions.get_functions(active_only=True)
     tool_list = await Tools.get_tools()
+    function_ids = {function.id for function in function_list}
 
     all_dependencies = ''
     try:
@@ -434,3 +447,5 @@ async def install_tool_and_function_dependencies():
         install_frontmatter_requirements(all_dependencies.strip(', '))
     except Exception as e:
         log.error(f'Error installing requirements: {e}')
+
+    return function_ids
